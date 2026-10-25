@@ -1,167 +1,233 @@
-# Urban Flood Simulator (`urban-flood-simulator`)
+# 🌊 Urban Flood & Drainage Flow Simulator
 
-> **First-Year Engineering Mathematics & Numerical Methods**  
-> **A Small, Explainable 2D Urban Waterlogging Simulator**  
-> ⚠️ **DISCLAIMER: Educational only, not a certified flood-warning tool.**  
-> *This software is strictly an academic demonstration model for teaching discrete finite-volume methods and water balance principles. It is NOT certified, calibrated, or suitable for real-world emergency planning, life-safety warnings, or municipal flood hazard mitigation.*
+**A small, explainable Python simulator that shows where rain water collects in a neighbourhood, and tests whether bigger drains or green ground reduce the flooding.**
 
----
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-ff4b4b)](https://urban-flood-simulator.streamlit.app/)
+[![Tests](https://img.shields.io/badge/Tests-pytest-green)](#-testing-and-validation)
+[![Use](https://img.shields.io/badge/Use-Educational%20only-orange)](#-limitations-and-responsible-use)
 
-## 🌊 Project Summary
+> **First-year CSE Engineering Mathematics project**
+> Differential equations, vector calculus, integrals and numerical methods, applied to one real problem: urban waterlogging.
 
-`urban-flood-simulator` is a lightweight, mathematically transparent 2D numerical simulator designed for first-year engineering students to explore urban hydrology, discrete differential equations, and computational water balance.
+### 👉 [Try the live dashboard](https://urban-flood-simulator.streamlit.app/)
 
-The simulator models surface water accumulation (ponding) across a 2D Cartesian grid under rainfall forcing, soil infiltration, storm drain extraction, and gravity-driven overland routing.
-
-### Key Engineering Concepts Explored
-- **2D Discrete Water Balance**: Explicit forward Euler time integration on finite volumes:
-  $$\frac{\partial h}{\partial t} = R - I - D - \nabla \cdot \mathbf{q}$$
-  $$h^{\text{new}}_{i,j} = h_{i,j} + \Delta t \left( R_{i,j} - I_{i,j} - D_{i,j} - \text{div}(\mathbf{q})_{i,j} \right)$$
-- **Topographic Water Routing**: Overland flux $\mathbf{q} = (q_x, q_y)$ driven by water-surface elevation ($\eta = h + z$).
-- **Strict SI Physical Units**:
-  - Depths ($h$) and bed elevations ($z$): meters ($\text{m}$)
-  - Grid cell spacing ($dx$): meters ($\text{m}$)
-  - Time step ($dt$) and simulation duration ($t_{\text{end}}$): seconds ($\text{s}$)
-  - Fluxes and capacities ($R, I, D$): meters per second ($\text{m/s}$)
-  - Cumulative water volumes: cubic meters ($\text{m}^3$)
-- **Mass Conservation**: Strict mass balance verification via shared cell-edge fluxes with opposing signs ($\sum \text{div}(\mathbf{q}) = 0$ on closed boundaries).
-- **Policy & Civil Interventions**: Fair comparison of Grey (drain capacity upgrades) vs. Green (permeable pavements / Sponge City) infrastructure.
+> ⚠️ **Educational use only.** This is a learning model. It is **not** a flood-warning system and must not be used for emergency decisions or real infrastructure design. See [Limitations](#-limitations-and-responsible-use).
 
 ---
 
-## 📁 Repository Structure
+## 📖 Table of contents
 
-```text
-urban-flood-simulator/
-├── AGENTS.md                  # Architectural contract, team rules, and ownership boundaries
-├── README.md                  # Project overview, installation, usage, and folder structure
-├── requirements.txt           # Python dependencies (numpy, matplotlib, pandas, pytest, streamlit)
-├── main.py                    # CLI runner executing baseline, grey, and green scenarios
-├── .gitignore                 # Standard Python gitignore rules
-├── floodsim/                  # Core simulation engine package
-│   ├── __init__.py            # Package initialization (exports SimConfig, SimResult)
-│   ├── config.py              # SimConfig and SimResult dataclasses with validation
-│   ├── terrain.py             # Topography generation (bowl, slope, random), land cover, drains
-│   ├── rainfall.py            # Rainfall hyetographs: constant & triangular design storms
-│   ├── scenarios.py           # Pre-configured policy scenarios (baseline, improved drains, green)
-│   ├── operators.py           # Discrete spatial differential operators: gradient, divergence
-│   ├── solver.py              # 0D ODE reference bucket, 2D time stepper, simulation loop
-│   ├── metrics.py             # Volume conservation, boundary losses, peak depth, hotspot duration
-│   ├── viz.py                 # Matplotlib visualization routines: depth colormap, hydrographs
-│   ├── validation.py          # Mass balance tolerance verification and analytical benchmarks
-│   └── sensitivity.py         # Parametric sensitivity sweeps
-├── app/
-│   ├── __init__.py
-│   └── dashboard.py           # Interactive Streamlit dashboard for real-time demonstration
-├── tests/
-│   ├── __init__.py
-│   ├── test_contract.py       # Dataclass structure and contract tests
-│   └── test_inputs.py         # Input generation tests: shapes, non-negative rates, mm/hr conversion
-└── docs/
-    └── mathematics.md         # Full mathematical derivations, numerical notes, and formulas
-```
+1. [The problem](#-the-problem)
+2. [How it works](#-how-it-works)
+3. [The mathematics](#-the-mathematics)
+4. [Scenarios compared](#-scenarios-compared)
+5. [Example result](#-example-result)
+6. [Getting started](#-getting-started)
+7. [Project structure](#-project-structure)
+8. [Testing and validation](#-testing-and-validation)
+9. [Limitations and responsible use](#-limitations-and-responsible-use)
+10. [Team](#-team)
+11. [References](#-references)
 
 ---
 
-## 🛠️ Installation
+## 🌧️ The problem
 
-### Prerequisites
-- Python 3.10+ (tested up to Python 3.15)
-- Standard virtual environment tools (`venv` or `conda`)
+During heavy rain, water reaches the streets faster than drains can remove it. Low ground, paved surfaces that do not soak up water, and small or blocked drains make waterlogging worse.
 
-### Step-by-Step Setup
+**Our engineering question:** given rainfall, terrain and a simple drainage system, where does water collect, how does its depth change over time, and which fixes might help?
 
-1. **Navigate to project directory**:
-   ```bash
-   cd c:\Projects\urban-flood-simulator
-   ```
+## ⚙️ How it works
 
-2. **Create and activate a virtual environment**:
-   - On Windows (PowerShell):
-     ```powershell
-     python -m venv .venv
-     .venv\Scripts\Activate.ps1
-     ```
-   - On Windows (Command Prompt):
-     ```cmd
-     python -m venv .venv
-     .venv\Scripts\activate.bat
-     ```
-   - On Linux / macOS:
-     ```bash
-     python -m venv .venv
-     source .venv/bin/activate
-     ```
+The neighbourhood is split into a **30 × 30 grid of small squares**, like a chocolate bar. The computer tracks the water depth in every square and repeats four steps in small time steps:
 
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+1. **Rain** adds water to each square.
+2. **Infiltration**: soil and grass soak some water up, while paved ground soaks up almost none.
+3. **Drains** remove water, up to a fixed capacity.
+4. **Flow**: water moves downhill to lower neighbouring squares. Each edge shares one flow value, so water leaving one square exactly enters the next.
 
----
+After thousands of steps, the grid shows where the flood spots are.
 
-## 🚀 How to Run
+## 🧮 The mathematics
 
-### 1. Run the Main CLI Scenario Suite
-Execute all three standard scenarios (`baseline`, `improved_drains`, `green_infrastructure`) and call visualization routines:
-```bash
-python main.py
+The core rule is a water balance (the continuity equation):
+
 ```
-*Note: Uses `try/except` guards to run cleanly whether backend modules are stubs or fully implemented.*
-
-### 2. Run the Pytest Test Suite
-Verify input shapes, rate constraints, physical unit conversions, and architectural contracts:
-```bash
-pytest tests/ -v
+∂h/∂t + ∇·q = R − I − D
 ```
 
-To run individual test modules:
-```bash
-pytest tests/test_inputs.py -v
-pytest tests/test_contract.py -v
+where `h` is water depth, `q` is the water flow, `R` is rainfall, `I` is infiltration and `D` is drain removal. On the grid, one time step looks like this:
+
+```
+h_new[i,j] = h[i,j] + dt * ( R − I − D − div(q)[i,j] )
 ```
 
-### 3. Launch the Streamlit Web Dashboard
-Launch the interactive web-based dashboard to visualize topography, storm profiles, and scenario comparisons:
+| Concept from the course | What it does in this project | Where |
+|---|---|---|
+| **ODE** | Water balance for one square: `dH/dt = R − I − D` | `floodsim/solver.py` |
+| **PDE** | The same balance across the whole map and over time | `floodsim/solver.py` |
+| **Partial derivatives and gradient** | Water-surface slope decides which way water flows (downhill) | `floodsim/operators.py` |
+| **Divergence** | Net flow leaving a square, used in the water balance | `floodsim/operators.py` |
+| **Double integral** | Total water volume: `V ≈ Σ h · dx²` | `floodsim/metrics.py` |
+| **Line integral** | Flow rate crossing the map boundary | `floodsim/metrics.py` |
+| **Numerical methods** | Forward Euler time stepping and finite differences on a grid | `floodsim/solver.py` |
+
+All quantities use SI units: depth and elevation in metres, time in seconds, rates in m/s, volumes in m³.
+
+The full derivations are in [`docs/`](docs/).
+
+## 🏙️ Scenarios compared
+
+All three scenarios use the **same terrain and the same rainfall**, so the comparison is fair.
+
+| Scenario | Idea |
+|---|---|
+| **Baseline** | A mostly paved area with a few small drains |
+| **Improved drains** | The same area with larger drain capacity and more inlets |
+| **Green infrastructure** | The same area, but part of the paving is replaced by soil or grass that soaks up water |
+
+## 📊 Example result
+
+The dashboard prints a water balance for each run. One example run:
+
+| Item | Volume | Share of rain |
+|---|---|---|
+| Total rain | 126.1 m³ | 100% |
+| Soaked into the soil | 29.4 m³ | 23.3% |
+| Taken by drains | 1.4 m³ | 1.1% |
+| Left through the boundary | 0.0 m³ | 0% |
+| **Still on the surface at the end** | **95.3 m³** | **75.5%** |
+| Peak depth anywhere on the map | 19.95 cm | |
+| **Water-balance error** | **about 4 × 10⁻¹² m³** | effectively zero |
+
+The error is practically zero because the solver never creates or loses water. Switch scenarios in the dashboard to see how the "still on the surface" number changes.
+
+<!--
+Add screenshots after saving them in docs/images/, then remove this comment:
+
+![Depth map](docs/images/depth_map.png)
+![Scenario comparison](docs/images/scenario_comparison.png)
+-->
+
+## 🚀 Getting started
+
+### Option 1: Use the live dashboard
+
+Open **https://urban-flood-simulator.streamlit.app/**. If the app is asleep, click the button to wake it up and wait a few seconds.
+
+### Option 2: Run it on your own computer
+
+You need **Python 3.10 or newer** (3.12 is recommended) and Git.
+
 ```bash
+# 1. Get the code
+git clone https://github.com/Anish-2409/urban-flood-simulator.git
+cd urban-flood-simulator
+
+# 2. Create and activate a virtual environment
+python -m venv .venv
+.venv\Scripts\activate            # Windows (PowerShell)
+# source .venv/bin/activate       # macOS / Linux
+
+# 3. Install the packages
+pip install -r requirements.txt
+```
+
+If PowerShell says that running scripts is disabled, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once and try again.
+
+### Run it
+
+```bash
+# Interactive dashboard (opens in your browser at http://localhost:8501)
 streamlit run app/dashboard.py
+
+# Command-line run of all three scenarios
+python main.py
+
+# Water-balance sanity check
+python check_sanity.py
+
+# All automated tests
+pytest
 ```
 
+In the dashboard you can change the rainfall intensity, storm duration, drain capacity and paved fraction, switch between the three scenarios, and view the depth map, the volume chart and the water balance table.
+
+## 📁 Project structure
+
+```
+urban-flood-simulator/
+├── app/
+│   └── dashboard.py        # Streamlit web dashboard
+├── floodsim/               # The simulation package
+│   ├── config.py           #   SimConfig and SimResult data classes
+│   ├── terrain.py          #   Terrain, land cover and drain layout
+│   ├── rainfall.py         #   Constant and triangular design storms
+│   ├── scenarios.py        #   Baseline, improved drains, green infrastructure
+│   ├── operators.py        #   Gradient and divergence
+│   ├── solver.py           #   Water balance and time stepping
+│   ├── metrics.py          #   Volume, boundary flow, hotspot duration
+│   ├── viz.py              #   Plots
+│   ├── validation.py       #   Water-balance checks
+│   └── sensitivity.py      #   Rainfall / infiltration / drain sensitivity
+├── tests/                  # pytest test suite
+├── docs/                   # Mathematics notes and report
+├── AGENTS.md               # Shared rules and file ownership for the team
+├── check_sanity.py         # Quick water-balance check
+├── main.py                 # Command-line runner
+└── requirements.txt        # Python packages
+```
+
+## ✅ Testing and validation
+
+We do not just check that the program runs. We check that it is **physically correct**:
+
+- **Water balance:** rain in − infiltration − drains − boundary outflow = change in stored water (tested for all three scenarios).
+- **No rain, no water:** a dry map with no rainfall stays dry.
+- **No negative depth:** water depth never drops below zero.
+- **Closed boundary:** with no drains and no infiltration, the water stored equals the rain that fell.
+- **Bowl terrain:** water collects in the low centre.
+- **Better drains help:** the improved-drains scenario never has a higher peak volume than the baseline.
+- **ODE check:** the single-square solver is compared with its exact analytic solution.
+
+Run them with `pytest`. At the time of writing, all 35 tests pass.
+
+## ⚠️ Limitations and responsible use
+
+- The terrain is generated, not measured. Real curbs, road crowns, underpasses and small channels are not modelled.
+- Flow uses a simplified rule, not the full shallow-water equations.
+- Real drain performance depends on pipe layout, blockages and water levels downstream, which are simplified here.
+- The model has **not** been calibrated or validated against a real flood event.
+- Results are **scenario estimates, not street-level forecasts**.
+- **Do not use this software** for emergency decisions, evacuation planning, or certified infrastructure design.
+
+**Possible next steps:** use real elevation data (Copernicus DEM) and rainfall data (IMD, NASA GPM IMERG), compare with an established model such as EPA SWMM, and add a cost-versus-benefit ranking of the interventions.
+
+## 👥 Team
+
+First-year CSE team of four. Each member owned a separate part of the code.
+
+| Name | GitHub | Role |
+|---|---|---|
+| Anish P | [@Anish-2409](https://github.com/Anish-2409) | Inputs and scenarios: terrain, rainfall, scenario setup, project lead |
+| Vishwa  | [@Vishwa-0403](https://github.com/Vishwa-0403) | Core solver: operators and time stepping |
+| Chaitanya DeshPande | [@chaitanyadeshpande2007-lang](https://github.com/chaitanyadeshpande2007-lang) | Metrics and visualisation |
+| Rahul Rathi | [@rahulrathi14022007](https://github.com/rahulrathi14022007) | Testing, validation, sensitivity analysis and dashboard |
+
+We worked with Git branches and pull requests, and used AI coding assistants to help write code, which we reviewed and tested ourselves.
+
+## 📚 References
+
+- EPA, [Storm Water Management Model (SWMM)](https://www.epa.gov/water-research/storm-water-management-model-swmm)
+- US Army Corps of Engineers, [HEC-RAS Hydraulic Equations](https://www.hec.usace.army.mil/confluence/rasdocs/hecras/latest/technical-reference/hydraulic-equations)
+- Guo et al. (2021), [Urban surface water flood modelling: a review](https://hess.copernicus.org/articles/25/2843-2021.html)
+- [IMD rainfall, National Water Data Portal](https://nwdp.nwic.gov.in/dataset/rainfall-daily-imd)
+- [NASA GPM IMERG](https://gpm.nasa.gov/data/imerg)
+- [Copernicus DEM](https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM)
+- [NRSC thematic datasets / Bhuvan](https://www.nrsc.gov.in/nrscnew/Dataproducts_Thematic_overview.php)
+- [Copernicus Emergency Management Service](https://emergency.copernicus.eu/data/)
+
 ---
 
-## 🧩 Core Input Components
-
-### 1. Terrain Generation (`floodsim/terrain.py`)
-- `make_terrain(rows=30, cols=30, kind="bowl", seed=0)`:
-  - `"bowl"`: Parabolic depression with low centre; water ponds naturally in the interior.
-  - `"slope"`: Tilted plane with uniform gradient from upstream (row 0) to downstream.
-  - `"random"`: Continuous smoothed micro-topography using 2D binomial/Gaussian filtering with seed reproducibility.
-  - Returns: 2D `np.float64` array of bed elevations in meters ($\text{m}$).
-- `make_land_cover(shape, paved_fraction, seed=0)`:
-  - Assigns urban land cover and returns maximum infiltration capacity $I_{\max}$ in $\text{m/s}$.
-  - Impermeable paved cells: $\sim 0$ to $10^{-7}\text{ m/s}$.
-  - Permeable green/soil cells: $\sim 10^{-6}$ to $5 \times 10^{-6}\text{ m/s}$.
-- `place_drains(shape, positions, capacity)`:
-  - Generates drain intake grid $D_{\max}$ in $\text{m/s}$ with specified capacity at target inlet coordinates.
-
-### 2. Rainfall Hyetographs (`floodsim/rainfall.py`)
-- **Unit Conversion**:
-  $$1\text{ mm/hr} = \frac{10^{-3}\text{ m}}{3600\text{ s}} \approx 2.78 \times 10^{-7}\text{ m/s}$$
-- `constant_storm(intensity_mm_hr, duration_min, dt, t_end)`:
-  - Rectangular storm profile with constant intensity during the storm and zero afterwards.
-  - Returns 1D array of length $N = \lceil t_{\text{end}} / \Delta t \rceil$ with rates in $\text{m/s}$.
-- `triangular_storm(peak_mm_hr, duration_min, dt, t_end)`:
-  - Symmetric triangular design storm peaking at $t_{\text{half}} = t_{\text{dur}} / 2$.
-
-### 3. Standard Scenarios (`floodsim/scenarios.py`)
-All scenarios share identical 30x30 bowl terrain and identical rainfall forcing for strictly fair comparison:
-1. `baseline()`: 80% paved impervious urban domain with conventional central drainage inlets.
-2. `improved_drains()`: Same terrain and land cover, but doubles drain intake capacity ($2\times$) and expands inlet count.
-3. `green_infrastructure()`: Same terrain and drainage, but retrofits ~60% of paved cells with permeable green surfaces ($I \sim 10^{-6} \text{ to } 5 \times 10^{-6}\text{ m/s}$).
-
----
-
-## ⚠️ Scope Disclaimer
-
-> **ACADEMIC AND EDUCATIONAL USE ONLY**  
-> This simulator was developed solely as an educational teaching aid for engineering students studying numerical differential equations, conservation laws, and computational fluid mechanics. It is **not** a certified hydraulic modeling package (such as US Army Corps HEC-RAS, EPA SWMM, or TUFLOW). Do not use this software for flood risk zoning, real-world emergency evacuation planning, structure design, or life-safety flood hazard assessments.
+*Educational project. Not a certified flood-warning or engineering design tool.*
